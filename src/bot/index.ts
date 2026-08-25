@@ -3,7 +3,8 @@ import {
     GatewayIntentBits,
     REST,
     Routes,
-    ChatInputCommandInteraction
+    ChatInputCommandInteraction,
+    SnowflakeUtil
 } from "discord.js";
 
 import dotenv from "dotenv";
@@ -178,6 +179,29 @@ function escapeRegExp(value: string) {
 }
 
 
+function parseDateBoundary(
+    value: string
+) {
+
+    const normalized =
+        /^\d{4}-\d{2}-\d{2}$/.test(value)
+            ? `${value}T00:00:00.000Z`
+            : value;
+
+    const timestamp =
+        Date.parse(normalized);
+
+    if (
+        Number.isNaN(timestamp) ||
+        timestamp < 1420070400000
+    ) {
+        return null;
+    }
+
+    return timestamp;
+}
+
+
 async function deleteMessagesContainingWord(
     interaction: ChatInputCommandInteraction
 ) {
@@ -230,6 +254,55 @@ async function deleteMessagesContainingWord(
         return;
     }
 
+    const beforeInput =
+        interaction.options
+            .getString("before")
+            ?.trim();
+
+    const afterInput =
+        interaction.options
+            .getString("after")
+            ?.trim();
+
+    const beforeTimestamp =
+        beforeInput
+            ? parseDateBoundary(beforeInput)
+            : null;
+
+    const afterTimestamp =
+        afterInput
+            ? parseDateBoundary(afterInput)
+            : null;
+
+    if (
+        (beforeInput && beforeTimestamp === null) ||
+        (afterInput && afterTimestamp === null)
+    ) {
+
+        await interaction.reply({
+            content:
+                "❌ Invalid date. Use YYYY-MM-DD or a full ISO timestamp, such as 2025-08-25T18:30:00Z.",
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    if (
+        beforeTimestamp !== null &&
+        afterTimestamp !== null &&
+        afterTimestamp >= beforeTimestamp
+    ) {
+
+        await interaction.reply({
+            content:
+                "❌ The `after` boundary must be earlier than the `before` boundary.",
+            ephemeral: true
+        });
+
+        return;
+    }
+
     const exactWord =
         new RegExp(
             `(?<![\\p{L}\\p{N}_])${escapeRegExp(word)}(?![\\p{L}\\p{N}_])`,
@@ -242,7 +315,18 @@ async function deleteMessagesContainingWord(
 
     let before:
         string |
-        undefined;
+        undefined =
+            beforeTimestamp !== null
+                ? SnowflakeUtil
+                    .generate({
+                        timestamp:
+                            beforeTimestamp
+                    })
+                    .toString()
+                : undefined;
+
+    let reachedAfterBoundary =
+        false;
 
     let scanned = 0;
     let deleted = 0;
@@ -260,8 +344,17 @@ async function deleteMessagesContainingWord(
             break;
         }
 
+        const oldestMessage =
+            messages.last();
+
         before =
-            messages.last()?.id;
+            oldestMessage?.id;
+
+        reachedAfterBoundary =
+            afterTimestamp !== null &&
+            oldestMessage !== undefined &&
+            oldestMessage.createdTimestamp <=
+                afterTimestamp;
 
         scanned +=
             messages.size;
@@ -270,6 +363,14 @@ async function deleteMessagesContainingWord(
             const message
             of messages.values()
         ) {
+
+            if (
+                afterTimestamp !== null &&
+                message.createdTimestamp <=
+                    afterTimestamp
+            ) {
+                continue;
+            }
 
             if (
                 !exactWord.test(
@@ -304,11 +405,25 @@ async function deleteMessagesContainingWord(
             );
         }
 
-    } while (before);
+    } while (
+        before &&
+        !reachedAfterBoundary
+    );
+
+    const rangeDescription = [
+        afterInput
+            ? `after **${afterInput}**`
+            : "",
+        beforeInput
+            ? `before **${beforeInput}**`
+            : ""
+    ]
+        .filter(Boolean)
+        .join(" and ");
 
     await interaction.editReply(
         [
-            `✅ Finished scanning ${scanned} messages.`,
+            `✅ Finished scanning ${scanned} messages${rangeDescription ? ` ${rangeDescription}` : ""}.`,
             `Deleted **${deleted}** messages containing the exact word **${word}**.`,
             failed > 0
                 ? `⚠️ Failed to delete **${failed}** matching messages.`
