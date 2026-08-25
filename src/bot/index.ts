@@ -31,7 +31,7 @@ const guildId =
 
 // Replace this with the Discord user ID that should be allowed to use /deleteword.
 const DELETE_WORD_USER_ID =
-    "REPLACE_WITH_DISCORD_USER_ID";
+    "249708693896167436";
 
 if (!token) {
     throw new Error(
