@@ -22,13 +22,25 @@ export const commands = [
         .toJSON(),
     new SlashCommandBuilder()
         .setName("deleteword")
-        .setDescription("Delete every message in this channel containing an exact word")
+        .setDescription("Delete messages containing an exact word within an optional date range")
         .addStringOption(option =>
             option
                 .setName("word")
                 .setDescription("The exact word or phrase to find")
                 .setRequired(true)
                 .setMinLength(1)
+        )
+        .addStringOption(option =>
+            option
+                .setName("before")
+                .setDescription("Start here and scan backwards (YYYY-MM-DD or ISO timestamp)")
+                .setRequired(false)
+        )
+        .addStringOption(option =>
+            option
+                .setName("after")
+                .setDescription("Stop at this boundary (YYYY-MM-DD or ISO timestamp)")
+                .setRequired(false)
         )
         .toJSON()
 ];
