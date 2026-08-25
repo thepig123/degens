@@ -28,6 +28,10 @@ const clientId =
 const guildId =
     process.env.GUILD_ID;
 
+// Replace this with the Discord user ID that should be allowed to use /deleteword.
+const DELETE_WORD_USER_ID =
+    "REPLACE_WITH_DISCORD_USER_ID";
+
 if (!token) {
     throw new Error(
         "DISCORD_TOKEN is missing from .env"
@@ -48,7 +52,9 @@ if (!guildId) {
 
 const client = new Client({
     intents: [
-        GatewayIntentBits.Guilds
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent
     ]
 });
 
@@ -164,9 +170,171 @@ client.on(
 );
 
 
+function escapeRegExp(value: string) {
+    return value.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+    );
+}
+
+
+async function deleteMessagesContainingWord(
+    interaction: ChatInputCommandInteraction
+) {
+
+    if (
+        interaction.user.id !==
+        DELETE_WORD_USER_ID
+    ) {
+
+        await interaction.reply({
+            content:
+                "❌ You are not allowed to use this command.",
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    const channel =
+        interaction.channel;
+
+    if (
+        !channel ||
+        !channel.isTextBased() ||
+        !("messages" in channel)
+    ) {
+
+        await interaction.reply({
+            content:
+                "❌ This command can only be used in a text channel.",
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    const word =
+        interaction.options
+            .getString("word", true)
+            .trim();
+
+    if (!word) {
+
+        await interaction.reply({
+            content:
+                "❌ Enter a word to delete.",
+            ephemeral: true
+        });
+
+        return;
+    }
+
+    const exactWord =
+        new RegExp(
+            `(?<![\\p{L}\\p{N}_])${escapeRegExp(word)}(?![\\p{L}\\p{N}_])`,
+            "iu"
+        );
+
+    await interaction.deferReply({
+        ephemeral: true
+    });
+
+    let before:
+        string |
+        undefined;
+
+    let scanned = 0;
+    let deleted = 0;
+    let failed = 0;
+
+    do {
+
+        const messages =
+            await channel.messages.fetch({
+                limit: 100,
+                before
+            });
+
+        if (messages.size === 0) {
+            break;
+        }
+
+        before =
+            messages.last()?.id;
+
+        scanned +=
+            messages.size;
+
+        for (
+            const message
+            of messages.values()
+        ) {
+
+            if (
+                !exactWord.test(
+                    message.content
+                )
+            ) {
+                continue;
+            }
+
+            try {
+
+                await message.delete();
+                deleted++;
+
+            } catch (error) {
+
+                failed++;
+
+                console.error(
+                    `Could not delete message ${message.id}:`,
+                    error
+                );
+            }
+        }
+
+        if (
+            scanned % 1000 === 0
+        ) {
+
+            await interaction.editReply(
+                `🔎 Scanned ${scanned} messages; deleted ${deleted} so far...`
+            );
+        }
+
+    } while (before);
+
+    await interaction.editReply(
+        [
+            `✅ Finished scanning ${scanned} messages.`,
+            `Deleted **${deleted}** messages containing the exact word **${word}**.`,
+            failed > 0
+                ? `⚠️ Failed to delete **${failed}** matching messages.`
+                : ""
+        ]
+            .filter(Boolean)
+            .join("\n")
+    );
+}
+
+
 async function handleCommand(
     interaction: ChatInputCommandInteraction
 ) {
+
+    if (
+        interaction.commandName ===
+        "deleteword"
+    ) {
+
+        await deleteMessagesContainingWord(
+            interaction
+        );
+
+        return;
+    }
 
     if (
         interaction.commandName !==
@@ -246,4 +414,4 @@ async function handleCommand(
     }
 }
     
-client.login(token); 
+client.login(token);
