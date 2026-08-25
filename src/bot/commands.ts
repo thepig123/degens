@@ -19,5 +19,16 @@ export const commands = [
                 .setName("leaderboard")
                 .setDescription("Show the Guess Who leaderboard")
         )
+        .toJSON(),
+    new SlashCommandBuilder()
+        .setName("deleteword")
+        .setDescription("Delete every message in this channel containing an exact word")
+        .addStringOption(option =>
+            option
+                .setName("word")
+                .setDescription("The exact word or phrase to find")
+                .setRequired(true)
+                .setMinLength(1)
+        )
         .toJSON()
 ];
